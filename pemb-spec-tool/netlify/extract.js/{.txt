@@ -1,0 +1,39 @@
+// Serverless extraction proxy. Holds your Anthropic API key server-side.
+export async function handler(event) {
+  if (event.httpMethod !== "POST") {
+    return { statusCode: 405, body: JSON.stringify({ error: "Method not allowed" }) };
+  }
+  try {
+    const { base64, mediaType, isPdf, prompt } = JSON.parse(event.body || "{}");
+    if (!base64 || !prompt) {
+      return { statusCode: 400, body: JSON.stringify({ error: "Missing file or prompt" }) };
+    }
+    const source = isPdf
+      ? { type: "document", source: { type: "base64", media_type: "application/pdf", data: base64 } }
+      : { type: "image", source: { type: "base64", media_type: mediaType, data: base64 } };
+
+    const resp = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": process.env.ANTHROPIC_API_KEY,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        // Switch to "claude-haiku-4-5-20251001" for lower cost and faster runs.
+        model: "claude-sonnet-5",
+        max_tokens: 4096,
+        messages: [{ role: "user", content: [source, { type: "text", text: prompt }] }],
+      }),
+    });
+
+    const data = await resp.json();
+    if (!resp.ok) {
+      return { statusCode: resp.status, body: JSON.stringify({ error: data?.error?.message || "Extraction failed" }) };
+    }
+    const text = (data.content || []).filter((b) => b.type === "text").map((b) => b.text).join("\n");
+    return { statusCode: 200, headers: { "content-type": "application/json" }, body: JSON.stringify({ text }) };
+  } catch (e) {
+    return { statusCode: 500, body: JSON.stringify({ error: e.message || "Server error" }) };
+  }
+}
