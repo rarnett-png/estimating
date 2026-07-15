@@ -204,18 +204,23 @@ Respond with only the JSON object.`;
         }
         throw new Error("Please upload a PDF or a JPG/PNG/GIF/WEBP image.");
       }
-      const sizeMB = file.size / (1024 * 1024);
-      if (sizeMB > 4.4) {
-        throw new Error("This file is " + sizeMB.toFixed(1) + " MB. This deployment routes files through a Netlify function capped near 6 MB, so keep uploads under ~4.5 MB by extracting just the spec pages.");
-      }
-      const base64 = await fileToBase64(file);
-      setStatus("extracting");
+          const sizeMB = file.size / (1024 * 1024);
+    const MAX_MB = 24; // keeps the base64-inflated payload safely under Anthropic's ~32MB request limit
+    if (sizeMB > MAX_MB) {
+      throw new Error("This file is " + sizeMB.toFixed(1) + " MB. Please keep uploads under ~" + MAX_MB + " MB, or extract just the spec pages first.");
+    }
+    setStatus("extracting");
 
-      const response = await fetch("/api/extract", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ base64, mediaType: file.type, isPdf, prompt: buildPrompt() }),
-      });
+    const form = new FormData();
+    form.append("file", file);
+    form.append("mediaType", file.type);
+    form.append("isPdf", String(isPdf));
+    form.append("prompt", buildPrompt());
+
+    const response = await fetch("/api/extract", {
+      method: "POST",
+      body: form,
+    });
       if (!response.ok) {
         let detail = "";
         try { const j = await response.json(); detail = j?.error || ""; } catch {}
